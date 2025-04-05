@@ -14,7 +14,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY", "your-api-key-here")
 with open("connections.json", "r") as f:
     system_prompt = f.read()
 
-prompt = "Your role is to respond to the user and invocate a call from the list below like: <call:{\"name\": \"test\", \"parameters\": [{\"name\": \"duration\", \"value\": \"30\"}]}> ALL CALLS MUST BE INVOCATED IN THIS STRUCTURE, IF A CALL TYPE OR PARAMETER OF A CALL TYPE IS NOT MENTIONED IN THE DOC BELOW, DO NOT USE IT, ALL INVOCATIONS MUST COMPLY WITH THE FOLLOWING DOC:"
+prompt = "Your role is to respond to the user and invocate a call from the list below like: <call:{\"platform\": \"test_platform\", \"function\": \"led\", \"parameters\": [{\"name\": \"duration\", \"value\": \"30\"}]}> ALL CALLS MUST BE INVOCATED IN THIS STRUCTURE, IF A CALL TYPE OR PARAMETER OF A CALL TYPE IS NOT MENTIONED IN THE DOC BELOW, DO NOT USE IT, ALL INVOCATIONS MUST COMPLY WITH THE FOLLOWING DOC:"
 system_prompt = prompt + system_prompt
 
 def extract_all_calls(input_str):
@@ -31,7 +31,7 @@ def extract_all_calls(input_str):
     
     return calls
 
-@app.route("/", methods=["POST"])
+@app.route("/message", methods=["POST"])
 def handle_request():
     data = request.get_json()
 
@@ -53,7 +53,7 @@ def handle_request():
         calls = extract_all_calls(output)
 
         for call in calls:
-            execution = "functions." + call['name'] + "("
+            execution = "functions." + call['platform'] + "." + call['function'] + "("
             for parameter_index in range(0, len(call['parameters'])):
                 parameter = call['parameters'][parameter_index]
                 execution += parameter['name'] + "=" + "\"" + parameter['value'] + "\""

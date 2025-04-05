@@ -1,20 +1,21 @@
 {
-    "test": {
-        "contact": "test",
-        "description": "call a request to this when prompted by the user, it shines a light on a website",
-        "parameters": [
-            {
-                "name": "duration",
-                "type": "integer 0-100 inclusive REQUIRED",
-                "example": "3",
-                "description": "Length of time in seconds for which the website led indicator shines"
-            },
-            {
-                "name": "color",
-                "type": "hex OPTIONAL",
-                "example": "FFFFFF",
-                "description": "RGB color code of the led indicator"
-            }
-        ]
+    "test_platform": {
+        "led": {
+            "description": "call a request to this when prompted by the user, it shines a light on a website",
+            "parameters": [
+                {
+                    "name": "duration",
+                    "type": "integer 0-100 inclusive REQUIRED",
+                    "example": "3",
+                    "description": "Length of time in seconds for which the website led indicator shines"
+                },
+                {
+                    "name": "color",
+                    "type": "hex OPTIONAL",
+                    "example": "FFFFFF",
+                    "description": "RGB color code of the led indicator"
+                }
+            ]
+        }
     }
 }
