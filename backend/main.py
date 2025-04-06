@@ -1,28 +1,20 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from functions import functions
 import openai
 import dotenv
 import os
 import re
 import json
-import logging
-
-# Set up logging
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
-
-# Configure OpenAI debug logging
-openai_logger = logging.getLogger("openai")
-openai_logger.setLevel(logging.DEBUG)
 
 app = Flask(__name__)
+CORS(app)
 
 dotenv.load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY", "your-api-key-here")
 
 with open("connections.json", "r") as f:
     connectionsDoc = f.read()
-    logger.debug("Loaded connections.json: %s", connectionsDoc[:100] + "...")
 
 prompt = """You are a helpful AI assistant that can interact with various functions. When a user makes a request:
 
@@ -70,30 +62,19 @@ CRITICAL RULES:
 7. On re-prompt after receiving function results, IMMEDIATELY make the next call if one is needed
 """
 prompt += connectionsDoc
-prompt += "the current date, time, and timezone is: " + str(
-    functions.datetime.get_current_time()
-)
-print("time: " + str(functions.datetime.get_current_time()))
-
 
 def extract_all_calls(input_str):
-    logger.debug("Extracting calls from input: %s", input_str)
-
-    # Find all occurrences of <call:...> with balanced braces
     calls = []
     start = 0
     while True:
-        # Find the next <call: marker
         start = input_str.find("<call:", start)
         if start == -1:
             break
 
-        # Find the opening brace
         brace_start = input_str.find("{", start)
         if brace_start == -1:
             break
 
-        # Track nested braces to find the matching end
         brace_count = 1
         pos = brace_start + 1
 
@@ -105,45 +86,31 @@ def extract_all_calls(input_str):
             pos += 1
 
         if brace_count == 0:
-            # Found a complete match
             json_str = input_str[brace_start:pos]
-            try:
-                parsed = json.loads(json_str)
-                logger.debug(
-                    "Successfully parsed JSON: %s", json.dumps(parsed, indent=2)
-                )
-                calls.append(parsed)
-            except json.JSONDecodeError as e:
-                logger.error("Failed to decode JSON: %s\nError: %s", json_str, e)
+            parsed = json.loads(json_str)
+            calls.append(parsed)
 
         start = pos
 
-    logger.debug("Found %d calls", len(calls))
     return calls
-
 
 def clean_json_for_prompt(json_str):
     """Clean up JSON to reduce redundant escaping and spacing"""
     try:
-        # If it's already a dict/list, just serialize it
         if not isinstance(json_str, str):
             return json.dumps(json_str, separators=(",", ":"))
 
-        # Remove redundant escaping
         json_str = json_str.replace('\\"', '"').replace("\\\\", "\\")
 
-        # Parse and re-serialize without pretty printing
         parsed = json.loads(json_str)
         return json.dumps(parsed, separators=(",", ":"))
     except:
         return json_str
 
-
 def format_function_result(platform, function, result):
     """Format function results consistently and cleanly"""
     try:
         if isinstance(result, str):
-            # Try to parse if it's a JSON string
             try:
                 result = json.loads(result)
             except:
@@ -152,38 +119,26 @@ def format_function_result(platform, function, result):
     except:
         return f"Result of {platform}.{function}: {result}"
 
-
-def handle_message(input, call_responses, output="", depth=0):
-    logger.debug("\n%sEntering handle_message (depth=%d)", "  " * depth, depth)
-    logger.debug("%sInput: %s", "  " * depth, input)
-    logger.debug("%sCall responses length: %d", "  " * depth, len(call_responses))
-
-    # Track function calls
+def handle_message(input, call_responses, user, output="", depth=0):
     function_calls_trace = []
 
     try:
-        # Load and clean connections doc once
         connections = json.loads(connectionsDoc)
         clean_connections = json.dumps(connections, separators=(",", ":"))
 
-        # Build system prompt with cleaned JSON
         system_prompt = prompt + clean_connections
 
-        # Construct conversation history
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": input},  # Always keep original instruction
+            {"role": "user", "content": input},
         ]
 
-        # Add all previous responses and results in sequence
         for response in call_responses:
-            # Skip io.continue calls in the context
             if '"platform":"io"' in response.replace(
                 " ", ""
             ) and '"function":"continue"' in response.replace(" ", ""):
                 continue
 
-            # Clean up JSON in responses
             if "Result of" in response:
                 try:
                     start = response.find("{")
@@ -197,54 +152,23 @@ def handle_message(input, call_responses, output="", depth=0):
 
             messages.append({"role": "assistant", "content": response})
 
-        logger.debug("%sConstructed conversation history:", "  " * depth)
-        for i, msg in enumerate(messages):
-            logger.debug(
-                "%sMessage %d - %s: %s",
-                "  " * depth,
-                i,
-                msg["role"],
-                msg["content"][:100] + "...",
-            )
-
-        logger.debug(
-            "\n%sSending request to OpenAI with %d messages",
-            "  " * depth,
-            len(messages),
-        )
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=messages,
-            temperature=0.7,  # Add some variability to avoid getting stuck in loops
+            temperature=0.7,
         )
         current_output = response.choices[0].message.content
-        logger.debug(
-            "\n%sReceived response from OpenAI: %s", "  " * depth, current_output
-        )
-
-        # Extract any function calls
         calls = extract_all_calls(current_output)
-        logger.debug("%sExtracted %d calls", "  " * depth, len(calls))
 
-        # Process function calls
         should_continue = False
         found_end = False
         for i, call in enumerate(calls):
-            logger.debug(
-                "%sProcessing call %d: %s", "  " * depth, i, json.dumps(call, indent=2)
-            )
-
+            print(call)
             if call["platform"] == "io":
                 if call["function"] == "continue":
-                    logger.debug(
-                        "%sFound io.continue, will recurse after processing all calls",
-                        "  " * depth,
-                    )
                     should_continue = True
                 elif call["function"] == "end":
-                    logger.debug("%sFound io.end, marking as complete", "  " * depth)
                     found_end = True
-                # Track io calls too
                 function_calls_trace.append(
                     {
                         "platform": call["platform"],
@@ -254,7 +178,6 @@ def handle_message(input, call_responses, output="", depth=0):
                 )
                 continue
 
-            # Track non-io function call
             function_calls_trace.append(
                 {
                     "platform": call["platform"],
@@ -263,34 +186,22 @@ def handle_message(input, call_responses, output="", depth=0):
                 }
             )
 
-            execution = "functions." + call["platform"] + "." + call["function"] + "("
+            execution = "functions." + call["platform"] + "." + call["function"] + "(" + "user=user, "
             params = []
             for param in call["parameters"]:
                 params.append(f"{param['name']}={repr(param['value'])}")
             execution += ", ".join(params) + ")"
 
-            logger.debug("%sExecuting: %s", "  " * depth, execution)
-
             try:
                 result = eval(execution)
-                logger.debug(
-                    "%sFunction result: %s", "  " * depth, json.dumps(result, indent=2)
-                )
-
-                # Format result consistently
                 result_message = format_function_result(
                     call["platform"], call["function"], result
                 )
                 call_responses.append(result_message)
-                logger.debug(
-                    "%sAdded result to call_responses: %s", "  " * depth, result_message
-                )
 
-                # Check if function has output flag
                 if call["platform"] in connections:
                     platform_info = connections[call["platform"]]
                     if isinstance(platform_info, dict):
-                        # Handle both old and new format
                         if "functions" in platform_info:
                             function_info = platform_info["functions"].get(
                                 call["function"], {}
@@ -299,27 +210,18 @@ def handle_message(input, call_responses, output="", depth=0):
                             function_info = platform_info.get(call["function"], {})
 
                         if function_info.get("output") == True:
-                            logger.debug(
-                                "%sFunction had output flag, will continue",
-                                "  " * depth,
-                            )
                             should_continue = True
-                            # Force continuation after this call
                             call_responses.append(
                                 '<call:{"platform":"io","function":"continue","parameters":[]}>'
                             )
             except Exception as e:
-                logger.error("%sError executing function: %s", "  " * depth, str(e))
-                logger.error("%sTraceback: %s", "  " * depth, traceback.format_exc())
                 call_responses.append(
                     f"Error in {call['platform']}.{call['function']}: {str(e)}"
                 )
 
-        # After processing all calls, continue if needed
         if should_continue:
-            logger.debug("%sContinuing with accumulated responses", "  " * depth)
-            next_result = handle_message(input, call_responses, output, depth + 1)
-            # Merge function calls from recursive call
+            next_result = handle_message(input, call_responses, user, output, depth + 1)
+            print("hi")
             if "function_calls_trace" in next_result:
                 function_calls_trace.extend(next_result["function_calls_trace"])
             return {
@@ -329,14 +231,7 @@ def handle_message(input, call_responses, output="", depth=0):
                 "function_calls_trace": function_calls_trace,
             }
 
-        # Only complete if we found an explicit end call or have no more calls to make
         if found_end or (not calls and not should_continue):
-            logger.debug(
-                "%sCompleting - found_end: %s, no_calls: %s",
-                "  " * depth,
-                found_end,
-                not calls,
-            )
             return {
                 "output": current_output,
                 "call_responses": call_responses,
@@ -344,13 +239,8 @@ def handle_message(input, call_responses, output="", depth=0):
                 "function_calls_trace": function_calls_trace,
             }
 
-        # Otherwise, get another response
-        logger.debug(
-            "%sNo end found and no continuation needed, getting another response",
-            "  " * depth,
-        )
-        next_result = handle_message(input, call_responses, output, depth + 1)
-        # Merge function calls from recursive call
+        next_result = handle_message(input, call_responses, user, output, depth + 1)
+        print("hi")
         if "function_calls_trace" in next_result:
             function_calls_trace.extend(next_result["function_calls_trace"])
         return {
@@ -361,45 +251,36 @@ def handle_message(input, call_responses, output="", depth=0):
         }
 
     except Exception as e:
-        logger.error("%sError in handle_message: %s", "  " * depth, str(e))
-        logger.error("%sError type: %s", "  " * depth, type(e))
-        import traceback
-
-        logger.error("%sTraceback: %s", "  " * depth, traceback.format_exc())
         return {
             "error": str(e),
             "complete": True,
             "function_calls_trace": function_calls_trace,
         }
 
-
-@app.route("/message", methods=["POST"])
+@app.route("/message", methods=["POST", "OPTIONS"])
 def handle_request():
-    logger.debug("\nReceived new request")
+    if request.method == "OPTIONS":
+        return '', 200
+
     data = request.get_json()
-    logger.debug("Request data: %s", json.dumps(data, indent=2))
 
     if not data or "input" not in data:
-        logger.error("Missing 'input' in request data")
         return jsonify({"error": "Missing 'input' in JSON body"}), 400
 
     user_input = data["input"]
-    logger.debug("Processing user input: %s", user_input)
+    user = data["user"]
 
-    # Process until complete
-    result = handle_message(user_input, [])
+    result = handle_message(user_input, [], user=user)
     while not result.get("complete", False):
         result = handle_message(
-            user_input, result.get("call_responses", []), result.get("output", "")
+            user_input, result.get("call_responses", []), user=user, output=result.get("output", "")
         )
 
-    # Return final result
     if "error" in result:
         return jsonify({"error": result["error"]}), 500
     return jsonify(
         {"output": result["output"], "call_responses": result.get("call_responses", [])}
     )
-
 
 if __name__ == "__main__":
     app.run(debug=True)
