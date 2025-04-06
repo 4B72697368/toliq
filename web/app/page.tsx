@@ -3,7 +3,7 @@
 import type React from "react"
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowRight, Settings } from "lucide-react"
+import { ArrowRight, Settings, Trash2 } from "lucide-react"
 import FunctionCallDisplay from "./components/FunctionCallDisplay"
 
 type Message = {
@@ -20,7 +20,17 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
 
+  // Load messages from localStorage on component mount
   useEffect(() => {
+    const savedMessages = localStorage.getItem("chatMessages")
+    if (savedMessages) {
+      try {
+        setMessages(JSON.parse(savedMessages))
+      } catch (e) {
+        console.error("Failed to parse saved messages:", e)
+      }
+    }
+
     const existingUser = localStorage.getItem("user")
     if (!existingUser) {
       localStorage.setItem(
@@ -32,6 +42,13 @@ export default function Home() {
       )
     }
   }, [])
+
+  // Save messages to localStorage whenever they change
+  useEffect(() => {
+    if (messages.length > 0) {
+      localStorage.setItem("chatMessages", JSON.stringify(messages))
+    }
+  }, [messages])
 
   useEffect(() => {
     scrollToBottom()
@@ -48,7 +65,8 @@ export default function Home() {
     
     // Add user message to chat
     const userMessage = { role: "user" as const, content: inputValue }
-    setMessages((prevMessages) => [...prevMessages, userMessage])
+    const updatedMessages = [...messages, userMessage]
+    setMessages(updatedMessages)
     setInputValue("")
 
     const user = JSON.parse(localStorage.getItem("user") || "{}")
@@ -62,6 +80,7 @@ export default function Home() {
         body: JSON.stringify({
           input: userMessage.content,
           user: user,
+          conversation_history: updatedMessages.slice(-10) // Send last 10 messages for context
         }),
       })
 
@@ -103,10 +122,29 @@ export default function Home() {
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      sendRequest()
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault(); // Prevent default to avoid adding a new line
+      sendRequest();
     }
+  }
+
+  // Auto-resize textarea based on content
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const textarea = e.target;
+    setInputValue(textarea.value);
+    
+    // Reset height to auto to get the right scrollHeight
+    textarea.style.height = 'auto';
+    
+    // Set to scrollHeight to expand properly
+    const newHeight = Math.min(Math.max(textarea.scrollHeight, 56), 200); // min 56px, max 200px
+    textarea.style.height = `${newHeight}px`;
+  }
+
+  const clearConversation = () => {
+    setMessages([]);
+    localStorage.removeItem("chatMessages");
   }
 
   return (
@@ -120,9 +158,21 @@ export default function Home() {
       </button>
 
       <div className="w-full max-w-4xl mx-auto flex flex-col h-screen pt-12 pb-4">
-        <h1 className="text-4xl font-bold mb-6 text-center transition-all duration-300">
-          {isHovering ? "pilot" : "toliq"}
-        </h1>
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-4xl font-bold text-center transition-all duration-300 flex-grow">
+            {isHovering ? "pilot" : "toliq"}
+          </h1>
+          {messages.length > 0 && (
+            <button
+              onClick={clearConversation}
+              className="text-gray-400 hover:text-white transition flex items-center gap-1"
+              title="Clear conversation"
+            >
+              <Trash2 className="h-5 w-5" />
+              <span className="text-sm">Clear</span>
+            </button>
+          )}
+        </div>
 
         {/* Chat messages */}
         <div className="flex-1 overflow-y-auto mb-4">
@@ -167,18 +217,18 @@ export default function Home() {
 
         {/* Input area */}
         <div className="relative mt-auto">
-          <input
-            type="text"
-            placeholder="Type something and press Enter..."
-            className="w-full h-16 px-6 py-4 text-lg bg-gray-800 border border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-600 focus:border-gray-600"
+          <textarea
+            placeholder="Type something and press Enter... (Shift+Enter for new line)"
+            className="w-full min-h-[56px] max-h-[200px] px-6 py-4 text-lg bg-gray-800 border border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-600 focus:border-gray-600 resize-none overflow-auto"
             onKeyDown={handleKeyDown}
-            onChange={(e) => setInputValue(e.target.value)}
+            onChange={handleTextareaChange}
             value={inputValue}
             autoFocus
             disabled={isSubmitting}
+            rows={1}
           />
           <button
-            className={`absolute right-4 top-1/2 transform -translate-y-1/2 h-10 w-10 rounded-full ${
+            className={`absolute right-4 bottom-[14px] h-10 w-10 rounded-full ${
               isSubmitting ? "bg-gray-600" : "bg-gray-700 hover:bg-gray-600"
             } flex items-center justify-center transition-colors`}
             onClick={sendRequest}

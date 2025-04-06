@@ -27,71 +27,235 @@ with open("connections.json", "r") as f:
 
 prompt = """You are a helpful AI assistant that can interact with various functions. When a user makes a request:
 
-1. First make any necessary function calls using this EXACT format:
-<call:{"platform": "platform_name", "function": "function_name", "parameters": [{"name": "param1", "value": "value1"}]}>
+1. First make any necessary function calls using this EXACT XML format:
+<function_call>
+  <platform>platform_name</platform>
+  <function>function_name</function>
+  <parameters>
+    <parameter name="param1">value1</parameter>
+    <parameter name="param2">value2</parameter>
+  </parameters>
+</function_call>
 
 2. After making a function call that returns data, ALWAYS use:
-<call:{"platform": "io", "function": "continue", "parameters": []}>
+<function_call>
+  <platform>io</platform>
+  <function>continue</function>
+  <parameters></parameters>
+</function_call>
 
 3. When you receive the function results in the next prompt:
    - DO NOT say what you will do or explain your next steps
+   - DO NOT include any text, explanations, or plan outside of the function call tags
    - If you need to make another function call based on the results, IMMEDIATELY make that call
    - If no more calls are needed, provide a detailed analysis/response based on the data
-   - Then end with: <call:{"platform": "io", "function": "end", "parameters": []}>
+   - Then end with: 
+<function_call>
+  <platform>io</platform>
+  <function>end</function>
+  <parameters></parameters>
+</function_call>
 
 4. If you need to make another function call after analyzing data:
-   - Make the call IMMEDIATELY without explanation
-   - Use io.continue
+   - Make the call IMMEDIATELY using the XML format
+   - DO NOT include any explanatory text before or after the XML
    - When you get those results, either make another call or analyze them
    - End with io.end
 
 
 CRITICAL RULES:
-1. Parameters MUST be an array of objects, each with "name" and "value" fields:
+1. ALWAYS wrap ALL your responses in function call tags. NEVER output plain text in between function calls.
+2. Parameters MUST be enclosed in <parameter> tags with name attribute:
    CORRECT:
-   "parameters": [
-     {"name": "sheet_name", "value": "Sheet1"},
-     {"name": "cells", "value": {"A1": {"value": 1}}}
-   ]
+   <parameters>
+     <parameter name="sheet_name">Sheet1</parameter>
+     <parameter name="cells">{"A1": {"value": 1}}</parameter>
+   </parameters>
    
    INCORRECT:
-   "parameters": {
+   <parameters>
      "sheet_name": "Sheet1",
      "cells": {"A1": {"value": 1}}
-   }
+   </parameters>
 
-2. For JSON values (like cells/formulas), put the JSON directly in the "value" field:
-   CORRECT: {"name": "cells", "value": {"A1": {"value": 1}}}
-   INCORRECT: {"name": "cells", "value": "{\\"A1\\": {\\"value\\": 1}}"}
+3. For JSON values (like cells/formulas), include the JSON directly inside the parameter tags:
+   CORRECT: <parameter name="cells">{"A1": {"value": 1}}</parameter>
+   INCORRECT: <parameter name="cells">"{"A1": {"value": 1}}"</parameter>
 
-3. NEVER escape quotes in JSON values
-4. NEVER ask the user for extra information - just follow the command as best you can
-5. When you receive function results, DO NOT say what you will do - just do it
-6. NEVER explain your next steps - just execute them
+4. NEVER escape quotes in JSON values
+5. NEVER ask the user for extra information - just follow the command as best you can
+6. When you receive function results, DO NOT say what you will do - just make the next function call
 7. On re-prompt after receiving function results, IMMEDIATELY make the next call if one is needed
-8. IMPORTANT: NEVER fabricate or hallucinate function results. Do not include "Result of [function]" text in your responses. Only the system will provide real function results.
-9. You cannot directly access or modify data - you must always make function calls to do so.
-10. Never pretend a function was called when it wasn't. Always wait for actual system response showing function results.
-11. Specifically, NEVER say "Result of calendar.create_events: {...}" - instead, you must make the actual function call using:
-    <call:{"platform":"calendar","function":"create_events","parameters":[{"name":"events","value":[...]}]}>
-12. If a task has not been explicitly completed in the context, you MUST call the necessary functions to complete it. On each prompt, if you don't see evidence that a requested operation was performed, assume it still needs to be done. Continue making function calls until the task is complete.
-13. Always check if the requested operation appears in the previous function calls before claiming it's done. If you don't see evidence that a specific function was called and returned results, you MUST make that function call.
-14. With each function call, include a brief plan of all steps needed for the task. Format as follows:
-    Plan: 
-    - Step 1: [Description] ✓
-    - Step 2: [Description] (current)
-    - Step 3: [Description]
-    
-    Mark completed steps with a checkmark (✓) and indicate the current step with "(current)".
-    after that, you must make the function call to complete the next task.
+8. You cannot directly access or modify data - you must always make function calls to do so.
+9. IMPORTANT: Your response must ALWAYS be in the XML format. NEVER respond with plain text, plans, or explanations outside the function calls.
+
+EXAMPLES:
+
+Input: "Create a formula to sum all values in column A"
+
+CORRECT:
+<function_call>
+  <platform>gsheets</platform>
+  <function>write_cells</function>
+  <parameters>
+    <parameter name="cells">{"B1": {"formula": "=SUM(A:A)"}}</parameter>
+  </parameters>
+</function_call>
+
+INCORRECT:
+Let me create a formula to sum all values in column A:
+<function_call>
+  <platform>gsheets</platform>
+  <function>write_cells</function>
+  <parameters>
+    <parameter name="cells">{"B1": {"formula": "=SUM(A:A)"}}</parameter>
+  </parameters>
+</function_call>
+
+EXAMPLE OF FLOW:
+1. User asks to calculate sum in column B
+2. You call gsheets.read_sheet to get data
+3. You immediately call gsheets.write_cells to apply formula
+4. You end with io.end
 """
 prompt += connectionsDoc
 prompt += "the current date, time, and timezone is: " + str(
     functions.datetime.get_current_time({"user": "system"})
 )
+prompt += """
+CRITICAL REMINDER:
+Your ENTIRE response must be in the XML function call format. Do not include ANY text, explanations, or plans outside of the <function_call> tags.
+
+For example, to call gsheets.write_cells, only respond with:
+<function_call>
+  <platform>gsheets</platform>
+  <function>write_cells</function>
+  <parameters>
+    <parameter name="cells">{"A2": {"value": "8:00-9:00"}, "B2": {"value": "Breakfast"}, "A3": {"value": "9:00-10:00"}, "B3": {"value": "Exercise"}}</parameter>
+  </parameters>
+</function_call>
+"""
 
 
 def extract_all_calls(input_str):
+    """Extract function calls using the XML format"""
+    calls = []
+
+    # First check if there are any function_call tags
+    if "<function_call>" not in input_str:
+        print("=== No <function_call> tags found in output")
+        # Look for potential malformed XML
+        if "< function_call>" in input_str or "<function_call >" in input_str:
+            print("=== WARNING: Found malformed function_call tags with extra spaces")
+
+        # Check for JSON-style calls
+        if "<call:" in input_str:
+            print("=== Found old-style <call: format, will attempt to extract")
+            # Extract using old method
+            calls_from_old_format = extract_calls_old_format(input_str)
+            if calls_from_old_format:
+                print(
+                    f"=== Successfully extracted {len(calls_from_old_format)} calls using old format"
+                )
+                return calls_from_old_format
+
+    # Find all function call blocks
+    pattern = r"<function_call>(.*?)</function_call>"
+    function_blocks = re.findall(pattern, input_str, re.DOTALL)
+
+    if not function_blocks:
+        print("=== No function blocks matched the regex pattern")
+        print(
+            f"=== Output snippet: {input_str[:200]}...{input_str[-200:] if len(input_str) > 400 else ''}"
+        )
+
+    for i, block in enumerate(function_blocks):
+        try:
+            print(f"=== Processing function block {i+1}/{len(function_blocks)}")
+
+            # Extract platform
+            platform_match = re.search(
+                r"<platform>([\s\S]*?)</platform>", block, re.DOTALL
+            )
+            platform = platform_match.group(1).strip() if platform_match else ""
+
+            if not platform:
+                print(f"=== WARNING: No platform found in block: {block[:100]}...")
+                continue
+
+            # Extract function
+            function_match = re.search(
+                r"<function>([\s\S]*?)</function>", block, re.DOTALL
+            )
+            function = function_match.group(1).strip() if function_match else ""
+
+            if not function:
+                print(f"=== WARNING: No function found in block: {block[:100]}...")
+                continue
+
+            # Extract parameters
+            parameters = []
+            param_pattern = r'<parameter\s+name="([^"]+)">([\s\S]*?)</parameter>'
+            param_matches = re.findall(param_pattern, block, re.DOTALL)
+
+            if not param_matches and "<parameters>" in block:
+                print(
+                    f"=== Parameters tag exists but no parameters found in block: {block[:100]}..."
+                )
+
+            for name, value in param_matches:
+                print(f"=== Found parameter: {name}")
+                value_preview = value[:50] + ("..." if len(value) > 50 else "")
+                print(f"=== Parameter value: {value_preview}")
+
+                # Try to parse JSON values
+                try:
+                    if value.strip().startswith("{") or value.strip().startswith("["):
+                        parsed_value = json.loads(value)
+                        print(f"=== Successfully parsed parameter value as JSON")
+                        parameters.append({"name": name.strip(), "value": parsed_value})
+                    else:
+                        # Keep as string if not JSON
+                        parameters.append({"name": name.strip(), "value": value})
+                except json.JSONDecodeError as e:
+                    print(f"=== Error parsing parameter value as JSON: {str(e)}")
+                    # Try fixing common issues with escaped quotes
+                    try:
+                        fixed_value = value.replace('\\"', '"').replace('\\\\"', '\\"')
+                        parsed_value = json.loads(fixed_value)
+                        print(
+                            f"=== Successfully parsed parameter value after fixing escapes"
+                        )
+                        parameters.append({"name": name.strip(), "value": parsed_value})
+                    except:
+                        # If still failing, keep as string
+                        print(
+                            f"=== Using raw string for parameter value after JSON parsing failed"
+                        )
+                        parameters.append({"name": name.strip(), "value": value})
+
+            # Create the function call object
+            if platform and function:
+                calls.append(
+                    {
+                        "platform": platform,
+                        "function": function,
+                        "parameters": parameters,
+                    }
+                )
+                print(
+                    f"=== Successfully extracted call: {platform}.{function} with {len(parameters)} parameters"
+                )
+        except Exception as e:
+            print(f"=== Error parsing function call block: {str(e)}")
+            print(f"=== Block: {block[:100]}...")
+
+    print(f"=== Total extracted function calls: {len(calls)}")
+    return calls
+
+
+def extract_calls_old_format(input_str):
+    """Extracts function calls using the old <call:{...}> format for backward compatibility"""
     calls = []
     start = 0
     while True:
@@ -115,8 +279,15 @@ def extract_all_calls(input_str):
 
         if brace_count == 0:
             json_str = input_str[brace_start:pos]
-            parsed = json.loads(json_str)
-            calls.append(parsed)
+            try:
+                parsed = json.loads(json_str)
+                calls.append(parsed)
+                print(
+                    f"=== Extracted legacy call: {parsed.get('platform', 'unknown')}.{parsed.get('function', 'unknown')}"
+                )
+            except json.JSONDecodeError as e:
+                print(f"=== Error parsing legacy call JSON: {str(e)}")
+                print(f"=== JSON string: {json_str[:100]}...")
 
         start = pos
 
@@ -138,16 +309,36 @@ def clean_json_for_prompt(json_str):
 
 
 def format_function_result(platform, function, result):
-    """Format function results consistently and cleanly"""
+    """Format function results consistently and cleanly using XML format"""
     try:
-        if isinstance(result, str):
+        # Convert to string representation
+        if isinstance(result, dict) or isinstance(result, list):
+            result_str = json.dumps(result, separators=(",", ":"))
+        elif isinstance(result, str):
+            # If it's already a string but could be JSON, try to parse and re-serialize it
             try:
-                result = json.loads(result)
+                json_obj = json.loads(result)
+                result_str = json.dumps(json_obj, separators=(",", ":"))
             except:
-                pass
-        return f"Result of {platform}.{function}: {json.dumps(result, separators=(',', ':'))}"
-    except:
-        return f"Result of {platform}.{function}: {result}"
+                # Not valid JSON, keep as is
+                result_str = result
+        else:
+            # For other types, just convert to string
+            result_str = str(result)
+
+        return f"""<function_result>
+  <platform>{platform}</platform>
+  <function>{function}</function>
+  <result>{result_str}</result>
+</function_result>"""
+    except Exception as e:
+        print(f"Error formatting function result: {e}")
+        # Safe fallback
+        return f"""<function_result>
+  <platform>{platform}</platform>
+  <function>{function}</function>
+  <result>Error formatting result: {str(e)}</result>
+</function_result>"""
 
 
 def handle_message(input, call_responses, user, output="", depth=0):
@@ -234,6 +425,29 @@ def handle_message(input, call_responses, user, output="", depth=0):
 
             print(f"Executing: {execution}")
             try:
+                # Add function call details to call_responses in XML format
+                parameters_xml = ""
+                for param in call["parameters"]:
+                    param_name = param["name"]
+                    param_value = param["value"]
+
+                    # Format value based on type
+                    if isinstance(param_value, (dict, list)):
+                        param_value_str = json.dumps(param_value, separators=(",", ":"))
+                    else:
+                        param_value_str = str(param_value)
+
+                    parameters_xml += f'    <parameter name="{param_name}">{param_value_str}</parameter>\n'
+
+                call_info = f"""<function_call>
+  <platform>{call['platform']}</platform>
+  <function>{call['function']}</function>
+  <parameters>
+{parameters_xml}  </parameters>
+</function_call>"""
+
+                call_responses.append(call_info)
+
                 result = eval(execution)
                 result_message = format_function_result(
                     call["platform"], call["function"], result
@@ -253,7 +467,7 @@ def handle_message(input, call_responses, user, output="", depth=0):
                         if function_info.get("output") == True:
                             should_continue = True
                             call_responses.append(
-                                '<call:{"platform":"io","function":"continue","parameters":[]}>'
+                                "<function_call><platform>io</platform><function>continue</function><parameters></parameters></function_call>"
                             )
             except Exception as e:
                 error_msg = f"Error in {call['platform']}.{call['function']}: {str(e)}"
@@ -320,6 +534,27 @@ def handle_request():
 
         user_input = data["input"]
         user = data["user"]
+
+        # Get conversation history if available
+        conversation_history = data.get("conversation_history", [])
+
+        # Format previous messages for context if available
+        context = ""
+        if (
+            conversation_history and len(conversation_history) > 1
+        ):  # More than just the current message
+            # Format the last few messages as context (excluding the current message)
+            context = "Previous conversation:\n"
+            for i, msg in enumerate(
+                conversation_history[:-1]
+            ):  # All except the last one
+                role = "User" if msg.get("role") == "user" else "Assistant"
+                context += f"{role}: {msg.get('content', '')}\n"
+
+            context += "\nCurrent request:\n"
+
+            # Prepend context to the current input
+            user_input = context + user_input
 
         print(f"Processing request with input: {user_input[:50]}...")
 

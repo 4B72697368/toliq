@@ -111,21 +111,124 @@ class functions:
                     Can be provided as either a JSON string or a direct object.
             """
             try:
+                print(f"=== write_cells called with cells type: {type(cells)}")
+                if isinstance(cells, str):
+                    print(
+                        f"=== Cells provided as string, first 100 chars: {cells[:100]}"
+                    )
+                else:
+                    print(
+                        f"=== Cells provided as object, keys: {list(cells.keys())[:5] if cells else 'empty'}"
+                    )
+
+                # Check if endpoint exists
+                if (
+                    not user
+                    or "gsheetsEndpoint" not in user
+                    or not user["gsheetsEndpoint"]
+                ):
+                    return {
+                        "error": "Google Sheets endpoint not configured in user settings"
+                    }
+
                 # Handle both direct JSON objects and JSON strings
                 cells_data = cells
                 if isinstance(cells, str):
                     try:
-                        cells_data = json.loads(cells)
-                    except json.JSONDecodeError as e:
-                        return {"error": f"Invalid cells format: {str(e)}"}
+                        # First try normal parsing
+                        try:
+                            cells_data = json.loads(cells)
+                            print(f"=== Successfully parsed cells JSON normally")
+                        except json.JSONDecodeError as e:
+                            print(f"=== Standard JSON parsing failed: {str(e)}")
 
+                            # Try with additional unescaping for double-escaped quotes
+                            fixed_cells = cells.replace('\\"', '"').replace(
+                                '\\\\"', '\\"'
+                            )
+                            try:
+                                cells_data = json.loads(fixed_cells)
+                                print(
+                                    f"=== Successfully parsed cells JSON after fixing escapes"
+                                )
+                            except json.JSONDecodeError as e2:
+                                print(f"=== Fixed JSON parsing also failed: {str(e2)}")
+                                print(f"=== Original: {cells[:50]}...")
+                                print(f"=== Fixed attempt: {fixed_cells[:50]}...")
+
+                                # If the string starts with a quote and ends with a quote, try removing them
+                                if cells.startswith('"') and cells.endswith('"'):
+                                    try:
+                                        inner_content = cells[1:-1].replace('\\"', '"')
+                                        cells_data = json.loads(inner_content)
+                                        print(
+                                            f"=== Successfully parsed cells JSON after removing outer quotes"
+                                        )
+                                    except json.JSONDecodeError as e3:
+                                        # Give up and report the original error
+                                        raise e
+                                else:
+                                    # Give up and report the original error
+                                    raise e
+                    except json.JSONDecodeError as e:
+                        error_context = cells[
+                            max(0, int(e.pos) - 30) : min(len(cells), int(e.pos) + 30)
+                        ]
+                        return {
+                            "error": f"Invalid cells format: {str(e)}",
+                            "details": f"Error near: ...{error_context}... (position {e.pos})",
+                            "tip": "Make sure your JSON is valid and doesn't contain improperly escaped quotes",
+                        }
+
+                # Verify that the cells data is a dictionary
+                if not isinstance(cells_data, dict):
+                    return {
+                        "error": "Invalid cells format: Must be a dictionary/object",
+                        "received": f"Type: {type(cells_data).__name__}",
+                    }
+
+                # Check for any cells with improperly structured formulas
+                for cell, data in cells_data.items():
+                    if not isinstance(data, dict):
+                        return {
+                            "error": f"Invalid format for cell {cell}: Value must be an object with 'value' or 'formula' key",
+                            "received": f"Type: {type(data).__name__}",
+                        }
+                    if "formula" in data and not isinstance(data["formula"], str):
+                        return {
+                            "error": f"Invalid formula for cell {cell}: Formula must be a string",
+                            "received": f"Type: {type(data['formula']).__name__}",
+                        }
+
+                print(f"=== Sending writeCells request with {len(cells_data)} cells")
                 payload = {
                     "action": "writeCells",
                     "data": {"cells": cells_data},
                 }
                 response = requests.post(user["gsheetsEndpoint"], json=payload)
-                return response.json()
+
+                # Check for a successful status code
+                if response.status_code != 200:
+                    return {
+                        "error": f"Failed to write cells: HTTP {response.status_code}",
+                        "details": response.text,
+                    }
+
+                # Try to parse the response
+                try:
+                    return response.json()
+                except json.JSONDecodeError:
+                    return {
+                        "error": "Failed to parse response from Google Sheets",
+                        "details": response.text[:200],
+                    }
+
             except Exception as e:
+                import traceback
+
+                error_trace = traceback.format_exc()
+                print(f"=== Error in write_cells: {str(e)}")
+                print(f"=== Traceback: {error_trace}")
                 return {"error": f"Failed to write cells: {str(e)}"}
 
     class calendar:
@@ -142,7 +245,9 @@ class functions:
                     dt_str = f"{dt_str}T{'23:59:59' if is_end else '00:00:00'}"
                 dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
                 if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
-                    dt = tz.localize(dt)
+                    # Replace localize() with a more compatible approach
+                    naive_dt = dt.replace(tzinfo=None)
+                    dt = datetime.combine(naive_dt.date(), naive_dt.time(), tzinfo=tz)
             else:
                 dt = datetime.now(tz)
                 if is_end:
@@ -157,13 +262,13 @@ class functions:
             If no dates provided, lists events from now to 7 days ahead"""
             try:
                 start_dt = (
-                    functions.calendar._format_datetime(start)
+                    functions.calendar._format_datetime(user, start)
                     if start
-                    else functions.calendar._format_datetime()
+                    else functions.calendar._format_datetime(user)
                 )
 
                 if end:
-                    end_dt = functions.calendar._format_datetime(end, is_end=True)
+                    end_dt = functions.calendar._format_datetime(user, end, is_end=True)
                 else:
                     tz = get_localzone()
                     end_dt = (
@@ -185,10 +290,10 @@ class functions:
                 for event in json.loads(events) if isinstance(events, str) else events:
                     processed_event = event.copy()
                     processed_event["start"] = functions.calendar._format_datetime(
-                        event.get("start")
+                        user, event.get("start")
                     )
                     processed_event["end"] = functions.calendar._format_datetime(
-                        event.get("end"), is_end=True
+                        user, event.get("end"), is_end=True
                     )
                     processed_events.append(processed_event)
 
@@ -226,9 +331,11 @@ class functions:
                 if title:
                     data["title"] = title
                 if start:
-                    data["start"] = functions.calendar._format_datetime(start)
+                    data["start"] = functions.calendar._format_datetime(user, start)
                 if end:
-                    data["end"] = functions.calendar._format_datetime(end, is_end=True)
+                    data["end"] = functions.calendar._format_datetime(
+                        user, end, is_end=True
+                    )
                 if description:
                     data["description"] = description
 

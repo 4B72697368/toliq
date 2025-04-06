@@ -125,5 +125,20 @@
                 "output": true
             }
         }
+    },
+    "io": {
+        "description": "Control flow operations for the AI assistant",
+        "functions": {
+            "continue": {
+                "description": "Continue processing after receiving function results",
+                "parameters": [],
+                "output": false
+            },
+            "end": {
+                "description": "End the processing chain and return final results to the user",
+                "parameters": [],
+                "output": false
+            }
+        }
     }
 }
