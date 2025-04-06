@@ -84,39 +84,25 @@ def extract_all_calls(input_str):
     start = 0
     while True:
         # Find the next <call: marker
-        start = input_str.find("<call:", start)
-        if start == -1:
+        call_start = input_str.find("<call:", start)
+        if call_start == -1:
             break
 
-        # Find the opening brace
-        brace_start = input_str.find("{", start)
-        if brace_start == -1:
+        # Find the closing > after the JSON
+        call_end = input_str.find(">", call_start)
+        if call_end == -1:
             break
 
-        # Track nested braces to find the matching end
-        brace_count = 1
-        pos = brace_start + 1
+        # Extract just the JSON part
+        json_str = input_str[call_start + 6 : call_end]  # +6 to skip "<call:"
+        try:
+            parsed = json.loads(json_str)
+            logger.debug("Successfully parsed JSON: %s", json.dumps(parsed, indent=2))
+            calls.append(parsed)
+        except json.JSONDecodeError as e:
+            logger.error("Failed to decode JSON: %s\nError: %s", json_str, e)
 
-        while brace_count > 0 and pos < len(input_str):
-            if input_str[pos] == "{":
-                brace_count += 1
-            elif input_str[pos] == "}":
-                brace_count -= 1
-            pos += 1
-
-        if brace_count == 0:
-            # Found a complete match
-            json_str = input_str[brace_start:pos]
-            try:
-                parsed = json.loads(json_str)
-                logger.debug(
-                    "Successfully parsed JSON: %s", json.dumps(parsed, indent=2)
-                )
-                calls.append(parsed)
-            except json.JSONDecodeError as e:
-                logger.error("Failed to decode JSON: %s\nError: %s", json_str, e)
-
-        start = pos
+        start = call_end + 1
 
     logger.debug("Found %d calls", len(calls))
     return calls
