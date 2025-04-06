@@ -48,5 +48,33 @@
                 "output": true
             }
         }
+    },
+    "gsheets": {
+        "list_sheets": {
+            "description": "Get a list of all sheets in the document with their metadata",
+            "parameters": []
+        },
+        "read_sheet": {
+            "description": "Read content from a specific sheet, returns values and formulas in A1 notation",
+            "parameters": [
+                {
+                    "name": "sheet_name",
+                    "type": "string OPTIONAL",
+                    "example": "Sheet1",
+                    "description": "Name of the sheet to read. If omitted, reads the first sheet."
+                }
+            ]
+        },
+        "write_cells": {
+            "description": "Write values and/or formulas to specific cells using A1 notation",
+            "parameters": [
+                {
+                    "name": "cells",
+                    "type": "JSON string REQUIRED",
+                    "example": "{\"A1\": {\"value\": \"Test\"}, \"B1\": {\"formula\": \"=SUM(C1:D1)\"}}",
+                    "description": "JSON string mapping A1 cell notation to value/formula objects"
+                }
+            ]
+        }
     }
 }

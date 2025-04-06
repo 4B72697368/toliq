@@ -1,0 +1,9 @@
+__pycache__/
+.env
+
+# venv
+bin/
+lib/
+share/man/man1/ipython.1
+.DS_Store
+pyvenv.cfg
