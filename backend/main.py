@@ -27,7 +27,7 @@ with open("connections.json", "r") as f:
 prompt = """You are a helpful AI assistant that can interact with various functions. When a user makes a request:
 
 1. First make any necessary function calls using this EXACT format:
-<call:{"platform": "platform_name", "function": "function_name", "parameters": [{"name": "param1", "value": "simple_value"}]}>
+<call:{"platform": "platform_name", "function": "function_name", "parameters": [{"name": "param1", "value": "value1"}]}>
 
 2. After making a function call that returns data, ALWAYS use:
 <call:{"platform": "io", "function": "continue", "parameters": []}>
@@ -45,16 +45,28 @@ prompt = """You are a helpful AI assistant that can interact with various functi
    - End with io.end
 
 CRITICAL RULES:
-1. For JSON parameters (like cells/formulas), the value must be a plain JSON object, NOT a string
-2. Example of correct JSON parameter:
-   {"name": "cells", "value": {"A1": {"value": 1}, "B1": {"value": 2}}}
-3. Example of INCORRECT JSON parameter (DO NOT DO THIS):
-   {"name": "cells", "value": "{\\"A1\\": {\\"value\\": 1}}"}
-4. NEVER escape quotes in JSON values
-5. NEVER ask the user for extra information - just follow the command as best you can
-6. When you receive function results, DO NOT say what you will do - just do it
-7. NEVER explain your next steps - just execute them
-8. On re-prompt after receiving function results, IMMEDIATELY make the next call if one is needed
+1. Parameters MUST be an array of objects, each with "name" and "value" fields:
+   CORRECT:
+   "parameters": [
+     {"name": "sheet_name", "value": "Sheet1"},
+     {"name": "cells", "value": {"A1": {"value": 1}}}
+   ]
+   
+   INCORRECT:
+   "parameters": {
+     "sheet_name": "Sheet1",
+     "cells": {"A1": {"value": 1}}
+   }
+
+2. For JSON values (like cells/formulas), put the JSON directly in the "value" field:
+   CORRECT: {"name": "cells", "value": {"A1": {"value": 1}}}
+   INCORRECT: {"name": "cells", "value": "{\\"A1\\": {\\"value\\": 1}}"}
+
+3. NEVER escape quotes in JSON values
+4. NEVER ask the user for extra information - just follow the command as best you can
+5. When you receive function results, DO NOT say what you will do - just do it
+6. NEVER explain your next steps - just execute them
+7. On re-prompt after receiving function results, IMMEDIATELY make the next call if one is needed
 
 The available functions are defined in this doc:"""
 prompt += connectionsDoc
