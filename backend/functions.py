@@ -2,45 +2,24 @@ import requests
 import json
 from datetime import datetime, timedelta
 import pytz
-import os
-import platform
+from tzlocal import get_localzone
 
 
 class functions:
-    # Get system timezone or default to UTC
-    @staticmethod
-    def get_system_timezone():
-        try:
-            # Try to get system timezone from tzlocal
-            from tzlocal import get_localzone
-
-            return get_localzone()
-        except ImportError:
-            try:
-                # Fallback to getting from time module
-                import time
-
-                return pytz.timezone(time.tzname[time.daylight])
-            except:
-                # Last resort fallback to UTC
-                return pytz.timezone("UTC")
-
     class datetime:
         @staticmethod
-        def get_current_time():
+        def get_current_time(user):
             """Get the current date and time in ISO format with timezone information"""
             try:
-                tz = functions.get_system_timezone()
+                tz = get_localzone()
                 current_time = datetime.now(tz)
                 utc_time = current_time.astimezone(pytz.UTC)
 
-                # Calculate offset from UTC in hours
                 offset_hours = current_time.utcoffset().total_seconds() / 3600
                 offset_sign = "+" if offset_hours >= 0 else ""
 
-                # Create example timestamps for demonstration
-                example_local = current_time.replace(hour=14, minute=0)  # 2:00 PM local
-                example_utc = example_local.astimezone(pytz.UTC)  # Convert to UTC
+                example_local = current_time.replace(hour=14, minute=0)
+                example_utc = example_local.astimezone(pytz.UTC)
 
                 return {
                     "current": {
@@ -62,39 +41,65 @@ class functions:
             except Exception as e:
                 return {"error": f"Failed to get current time: {str(e)}"}
 
-    class test_platform:
-        @staticmethod
-        def led(duration, color="FF0000"):
-            print("LED of color: " + color + " for the duration: " + duration)
-
     class gsheets:
-        ENDPOINT = "https://script.google.com/macros/s/AKfycbySvv3CNPXA9s-eKHooAEj5OkQl-70Zv_lMwYtDtoUGe7hd3dyVSMNacuXV2nDuE-trNA/exec"
-
         @staticmethod
-        def list_sheets():
+        def list_sheets(user):
             """Get list of all sheets in the document"""
             try:
                 response = requests.get(
-                    functions.gsheets.ENDPOINT, params={"action": "listSheets"}
+                    user["gsheetsEndpoint"], params={"action": "listSheets"}
                 )
                 return response.json()
             except Exception as e:
                 return {"error": f"Failed to list sheets: {str(e)}"}
 
         @staticmethod
-        def read_sheet(sheet_name=""):
+        def read_sheet(user, sheet_name=""):
             """Read content of a specific sheet"""
             try:
+                # Check if required endpoint exists
+                if (
+                    not user
+                    or "gsheetsEndpoint" not in user
+                    or not user["gsheetsEndpoint"]
+                ):
+                    return {
+                        "error": "Google Sheets endpoint not configured in user settings"
+                    }
+
                 params = {"action": "readSheet"}
                 if sheet_name:
                     params["sheetName"] = sheet_name
-                response = requests.get(functions.gsheets.ENDPOINT, params=params)
-                return response.json()
+
+                print(
+                    f"Sending request to Google Sheets endpoint: {user['gsheetsEndpoint'][:30]}... with params: {params}"
+                )
+                response = requests.get(user["gsheetsEndpoint"], params=params)
+
+                # Print the response status and first part of content for debugging
+                print(f"Google Sheets API response status: {response.status_code}")
+                response_preview = (
+                    response.text[:100] if response.text else "Empty response"
+                )
+                print(f"Response preview: {response_preview}")
+
+                # Try parsing the response as JSON
+                try:
+                    return response.json()
+                except Exception as json_error:
+                    return {
+                        "error": f"Failed to parse Google Sheets API response as JSON: {str(json_error)}"
+                    }
             except Exception as e:
+                import traceback
+
+                error_trace = traceback.format_exc()
+                print(f"Error in read_sheet: {str(e)}")
+                print(f"Traceback: {error_trace}")
                 return {"error": f"Failed to read sheet: {str(e)}"}
 
         @staticmethod
-        def write_cells(cells):
+        def write_cells(user, cells):
             """Write values/formulas to specific cells
 
             Args:
@@ -118,73 +123,64 @@ class functions:
                     "action": "writeCells",
                     "data": {"cells": cells_data},
                 }
-                response = requests.post(functions.gsheets.ENDPOINT, json=payload)
+                response = requests.post(user["gsheetsEndpoint"], json=payload)
                 return response.json()
             except Exception as e:
                 return {"error": f"Failed to write cells: {str(e)}"}
 
     class calendar:
-        ENDPOINT = "https://script.google.com/macros/s/AKfycbyll3En1_atkFg6dS3gFb7TFDTMFKYsXZSRV8SBq2TNP2rSvtWgCu-aLFYgKzKGEpr7/exec"
-
         @staticmethod
-        def _format_datetime(dt_str=None, is_end=False):
+        def _format_datetime(user, dt_str=None, is_end=False):
             """Helper to format datetime with timezone awareness
             If no datetime provided, uses current time for start, or current time + 1 hour for end
             Always adds 7 hours to convert PDT to UTC
             """
+            tz = get_localzone()
+
             if dt_str:
-                # If only date provided, add default time
                 if "T" not in dt_str:
                     dt_str = f"{dt_str}T{'23:59:59' if is_end else '00:00:00'}"
-                # Parse the datetime and add 7 hours for UTC
-                dt = datetime.fromisoformat(dt_str.replace("Z", ""))
+                dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+                if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
+                    dt = tz.localize(dt)
             else:
-                # Use current time
-                dt = datetime.now()
+                dt = datetime.now(tz)
                 if is_end:
-                    # For end time with no input, add 1 hour to current time
                     dt += timedelta(hours=1)
 
-            # Add 7 hours to convert PDT to UTC
-            dt += timedelta(hours=7)
-            return dt.strftime(
-                "%Y-%m-%dT%H:%M:%SZ"
-            )  # Return in UTC format with Z suffix
+            utc_dt = dt.astimezone(pytz.UTC)
+            return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         @staticmethod
-        def list_events(start=None, end=None):
+        def list_events(user, start=None, end=None):
             """List calendar events within a date range
             If no dates provided, lists events from now to 7 days ahead"""
             try:
-                # Format start date/time
                 start_dt = (
                     functions.calendar._format_datetime(start)
                     if start
                     else functions.calendar._format_datetime()
                 )
 
-                # Format end date/time
                 if end:
                     end_dt = functions.calendar._format_datetime(end, is_end=True)
                 else:
-                    # Default to 7 days from start if no end date provided
-                    tz = functions.get_system_timezone()
+                    tz = get_localzone()
                     end_dt = (
                         datetime.fromisoformat(start_dt) + timedelta(days=7)
                     ).isoformat()
 
                 params = {"action": "listEvents", "start": start_dt, "end": end_dt}
-                response = requests.get(functions.calendar.ENDPOINT, params=params)
+                response = requests.get(user["calendarEndpoint"], params=params)
                 return response.json()
             except Exception as e:
                 return {"error": f"Failed to list events: {str(e)}"}
 
         @staticmethod
-        def create_events(events):
+        def create_events(user, events):
             """Create multiple calendar events
             Automatically handles timezone conversion for event times"""
             try:
-                # Process each event's datetime fields
                 processed_events = []
                 for event in json.loads(events) if isinstance(events, str) else events:
                     processed_event = event.copy()
@@ -200,13 +196,29 @@ class functions:
                     "action": "createEvents",
                     "data": {"events": processed_events},
                 }
-                response = requests.post(functions.calendar.ENDPOINT, json=payload)
-                return response.json()
+
+                response = requests.post(user["calendarEndpoint"], json=payload)
+
+                # Check for a successful status code
+                if response.status_code != 200:
+                    return {
+                        "error": f"Failed to create events: HTTP {response.status_code}, {response.text}"
+                    }
+
+                # Attempt to parse the response as JSON
+                try:
+                    response_data = response.json()
+                    return response_data
+                except ValueError:
+                    return {
+                        "error": f"Failed to parse response as JSON: {response.text}"
+                    }
+
             except Exception as e:
                 return {"error": f"Failed to create events: {str(e)}"}
 
         @staticmethod
-        def update_event(id, title=None, start=None, end=None, description=None):
+        def update_event(user, id, title=None, start=None, end=None, description=None):
             """Update a calendar event
             Automatically handles timezone conversion for event times"""
             try:
@@ -221,17 +233,17 @@ class functions:
                     data["description"] = description
 
                 payload = {"action": "updateEvent", "data": data}
-                response = requests.post(functions.calendar.ENDPOINT, json=payload)
+                response = requests.post(user["calendarEndpoint"], json=payload)
                 return response.json()
             except Exception as e:
                 return {"error": f"Failed to update event: {str(e)}"}
 
         @staticmethod
-        def delete_event(id):
+        def delete_event(user, id):
             """Delete a calendar event"""
             try:
                 payload = {"action": "deleteEvent", "data": {"id": id}}
-                response = requests.post(functions.calendar.ENDPOINT, json=payload)
+                response = requests.post(user["calendarEndpoint"], json=payload)
                 return response.json()
             except Exception as e:
                 return {"error": f"Failed to delete event: {str(e)}"}
