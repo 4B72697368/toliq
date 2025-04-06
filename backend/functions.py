@@ -56,10 +56,6 @@ class functions:
                     },
                     "context": (
                         f"Current time is {current_time.strftime('%I:%M %p')} {tz} ({offset_sign}{offset_hours:g} hours from UTC). "
-                        f"For API calls using UTC, use {utc_time.strftime('%H:%M')} UTC. "
-                        f"IMPORTANT: When creating ISO timestamps for API calls like google calendar, you must ADD {abs(offset_hours)} hours to convert from {tz} to UTC. "
-                        f"Example: {example_local.strftime('%I:%M %p')} {tz} → {example_utc.strftime('%H:%M')} UTC "
-                        f"({example_local.isoformat()} → {example_utc.isoformat()})"
                     ),
                     "timestamp": int(current_time.timestamp()),
                 }
@@ -127,29 +123,24 @@ class functions:
         def _format_datetime(dt_str=None, is_end=False):
             """Helper to format datetime with timezone awareness
             If no datetime provided, uses current time for start, or current time + 1 hour for end
-            Always returns UTC time for Google Calendar API
+            Always adds 7 hours to convert PDT to UTC
             """
-            tz = functions.get_system_timezone()
-
             if dt_str:
                 # If only date provided, add default time
                 if "T" not in dt_str:
                     dt_str = f"{dt_str}T{'23:59:59' if is_end else '00:00:00'}"
-                # Parse the provided datetime
-                dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-                # If timezone not specified, assume it's in local timezone
-                if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
-                    dt = tz.localize(dt)
+                # Parse the datetime and add 7 hours for UTC
+                dt = datetime.fromisoformat(dt_str.replace("Z", ""))
             else:
                 # Use current time
-                dt = datetime.now(tz)
+                dt = datetime.now()
                 if is_end:
                     # For end time with no input, add 1 hour to current time
                     dt += timedelta(hours=1)
 
-            # Convert to UTC for Google Calendar
-            utc_dt = dt.astimezone(pytz.UTC)
-            return utc_dt.strftime(
+            # Add 7 hours to convert PDT to UTC
+            dt += timedelta(hours=7)
+            return dt.strftime(
                 "%Y-%m-%dT%H:%M:%SZ"
             )  # Return in UTC format with Z suffix
 
