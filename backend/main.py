@@ -44,6 +44,7 @@ prompt = """You are a helpful AI assistant that can interact with various functi
    - When you get those results, either make another call or analyze them
    - End with io.end
 
+
 CRITICAL RULES:
 1. Parameters MUST be an array of objects, each with "name" and "value" fields:
    CORRECT:
@@ -67,33 +68,57 @@ CRITICAL RULES:
 5. When you receive function results, DO NOT say what you will do - just do it
 6. NEVER explain your next steps - just execute them
 7. On re-prompt after receiving function results, IMMEDIATELY make the next call if one is needed
-
-The available functions are defined in this doc:"""
+"""
 prompt += connectionsDoc
+prompt += "the current date, time, and timezone is: " + str(
+    functions.datetime.get_current_time()
+)
+print("time: " + str(functions.datetime.get_current_time()))
 
 
 def extract_all_calls(input_str):
     logger.debug("Extracting calls from input: %s", input_str)
-    matches = re.findall(r"<call:(\{.*?\})>", input_str)
-    logger.debug("Found %d matches", len(matches))
 
+    # Find all occurrences of <call:...> with balanced braces
     calls = []
-    for i, m in enumerate(matches):
-        logger.debug("Processing match %d: %s", i, m)
-        try:
-            print("\nAttempting to parse JSON:", repr(m))
-            # Parse the JSON directly
-            parsed = json.loads(m)
-            logger.debug(
-                "Successfully parsed JSON for match %d: %s",
-                i,
-                json.dumps(parsed, indent=2),
-            )
-            calls.append(parsed)
-        except json.JSONDecodeError as e:
-            logger.error("Failed to decode match %d: %s\nError: %s", i, m, e)
-            continue
+    start = 0
+    while True:
+        # Find the next <call: marker
+        start = input_str.find("<call:", start)
+        if start == -1:
+            break
 
+        # Find the opening brace
+        brace_start = input_str.find("{", start)
+        if brace_start == -1:
+            break
+
+        # Track nested braces to find the matching end
+        brace_count = 1
+        pos = brace_start + 1
+
+        while brace_count > 0 and pos < len(input_str):
+            if input_str[pos] == "{":
+                brace_count += 1
+            elif input_str[pos] == "}":
+                brace_count -= 1
+            pos += 1
+
+        if brace_count == 0:
+            # Found a complete match
+            json_str = input_str[brace_start:pos]
+            try:
+                parsed = json.loads(json_str)
+                logger.debug(
+                    "Successfully parsed JSON: %s", json.dumps(parsed, indent=2)
+                )
+                calls.append(parsed)
+            except json.JSONDecodeError as e:
+                logger.error("Failed to decode JSON: %s\nError: %s", json_str, e)
+
+        start = pos
+
+    logger.debug("Found %d calls", len(calls))
     return calls
 
 
@@ -132,6 +157,9 @@ def handle_message(input, call_responses, output="", depth=0):
     logger.debug("\n%sEntering handle_message (depth=%d)", "  " * depth, depth)
     logger.debug("%sInput: %s", "  " * depth, input)
     logger.debug("%sCall responses length: %d", "  " * depth, len(call_responses))
+
+    # Track function calls
+    function_calls_trace = []
 
     try:
         # Load and clean connections doc once
@@ -216,7 +244,24 @@ def handle_message(input, call_responses, output="", depth=0):
                 elif call["function"] == "end":
                     logger.debug("%sFound io.end, marking as complete", "  " * depth)
                     found_end = True
+                # Track io calls too
+                function_calls_trace.append(
+                    {
+                        "platform": call["platform"],
+                        "function": call["function"],
+                        "parameters": call["parameters"],
+                    }
+                )
                 continue
+
+            # Track non-io function call
+            function_calls_trace.append(
+                {
+                    "platform": call["platform"],
+                    "function": call["function"],
+                    "parameters": call["parameters"],
+                }
+            )
 
             execution = "functions." + call["platform"] + "." + call["function"] + "("
             params = []
@@ -273,7 +318,16 @@ def handle_message(input, call_responses, output="", depth=0):
         # After processing all calls, continue if needed
         if should_continue:
             logger.debug("%sContinuing with accumulated responses", "  " * depth)
-            return handle_message(input, call_responses, output, depth + 1)
+            next_result = handle_message(input, call_responses, output, depth + 1)
+            # Merge function calls from recursive call
+            if "function_calls_trace" in next_result:
+                function_calls_trace.extend(next_result["function_calls_trace"])
+            return {
+                "output": next_result["output"],
+                "call_responses": next_result["call_responses"],
+                "complete": next_result["complete"],
+                "function_calls_trace": function_calls_trace,
+            }
 
         # Only complete if we found an explicit end call or have no more calls to make
         if found_end or (not calls and not should_continue):
@@ -287,6 +341,7 @@ def handle_message(input, call_responses, output="", depth=0):
                 "output": current_output,
                 "call_responses": call_responses,
                 "complete": True,
+                "function_calls_trace": function_calls_trace,
             }
 
         # Otherwise, get another response
@@ -294,7 +349,16 @@ def handle_message(input, call_responses, output="", depth=0):
             "%sNo end found and no continuation needed, getting another response",
             "  " * depth,
         )
-        return handle_message(input, call_responses, output, depth + 1)
+        next_result = handle_message(input, call_responses, output, depth + 1)
+        # Merge function calls from recursive call
+        if "function_calls_trace" in next_result:
+            function_calls_trace.extend(next_result["function_calls_trace"])
+        return {
+            "output": next_result["output"],
+            "call_responses": next_result["call_responses"],
+            "complete": next_result["complete"],
+            "function_calls_trace": function_calls_trace,
+        }
 
     except Exception as e:
         logger.error("%sError in handle_message: %s", "  " * depth, str(e))
@@ -302,7 +366,11 @@ def handle_message(input, call_responses, output="", depth=0):
         import traceback
 
         logger.error("%sTraceback: %s", "  " * depth, traceback.format_exc())
-        return {"error": str(e), "complete": True}
+        return {
+            "error": str(e),
+            "complete": True,
+            "function_calls_trace": function_calls_trace,
+        }
 
 
 @app.route("/message", methods=["POST"])

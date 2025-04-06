@@ -14,6 +14,13 @@
             }
         }
     },
+    "datetime": {
+        "get_current_time": {
+            "description": "Get the current date and time in ISO format with timezone information.",
+            "parameters": [],
+            "output": true
+        }
+    },
     "gsheets": {
         "list_sheets": {
             "description": "Get a list of all sheets in the document with their metadata",
@@ -40,6 +47,86 @@
                     "type": "JSON string REQUIRED",
                     "example": "{\"A1\": {\"value\": \"Test\"}, \"B1\": {\"formula\": \"=SUM(C1:D1)\"}}",
                     "description": "JSON string mapping A1 cell notation to value/formula objects"
+                }
+            ],
+            "output": true
+        }
+    },
+    "calendar": {
+        "list_events": {
+            "description": "List calendar events within a specified date range",
+            "parameters": [
+                {
+                    "name": "start",
+                    "type": "ISO date string OPTIONAL",
+                    "example": "2024-03-21",
+                    "description": "Start date for the range to list events. If omitted, uses current date."
+                },
+                {
+                    "name": "end",
+                    "type": "ISO date string OPTIONAL",
+                    "example": "2024-03-28",
+                    "description": "End date for the range to list events. If omitted, defaults to 7 days after start date."
+                }
+            ],
+            "output": true
+        },
+        "create_events": {
+            "description": "Create multiple calendar events at once",
+            "parameters": [
+                {
+                    "name": "events",
+                    "type": "JSON array REQUIRED",
+                    "example": "[{\"title\": \"Meeting\", \"start\": \"2024-03-22T10:00:00Z\", \"end\": \"2024-03-22T11:00:00Z\", \"description\": \"Team sync\"}]",
+                    "description": "Array of event objects, each containing title, start, end, and optional description"
+                }
+            ],
+            "output": true
+        },
+        "update_event": {
+            "description": "Update an existing calendar event",
+            "parameters": [
+                {
+                    "name": "id",
+                    "type": "string REQUIRED",
+                    "example": "abc123xyz",
+                    "description": "ID of the event to update"
+                },
+                {
+                    "name": "title",
+                    "type": "string OPTIONAL",
+                    "example": "Updated Meeting",
+                    "description": "New title for the event"
+                },
+                {
+                    "name": "start",
+                    "type": "ISO datetime string OPTIONAL",
+                    "example": "2024-03-22T11:00:00Z",
+                    "description": "New start time for the event"
+                },
+                {
+                    "name": "end",
+                    "type": "ISO datetime string OPTIONAL",
+                    "example": "2024-03-22T12:00:00Z",
+                    "description": "New end time for the event"
+                },
+                {
+                    "name": "description",
+                    "type": "string OPTIONAL",
+                    "example": "Updated team sync meeting",
+                    "description": "New description for the event"
+                }
+            ],
+            "output": true
+        },
+        "delete_event": {
+            "description": "Delete a calendar event",
+            "parameters": [
+                {
+                    "name": "id",
+                    "type": "string REQUIRED",
+                    "example": "abc123xyz",
+                    "description": "ID of the event to delete"
                 }
             ],
             "output": true
