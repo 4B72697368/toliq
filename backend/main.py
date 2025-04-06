@@ -68,6 +68,21 @@ CRITICAL RULES:
 5. When you receive function results, DO NOT say what you will do - just do it
 6. NEVER explain your next steps - just execute them
 7. On re-prompt after receiving function results, IMMEDIATELY make the next call if one is needed
+8. IMPORTANT: NEVER fabricate or hallucinate function results. Do not include "Result of [function]" text in your responses. Only the system will provide real function results.
+9. You cannot directly access or modify data - you must always make function calls to do so.
+10. Never pretend a function was called when it wasn't. Always wait for actual system response showing function results.
+11. Specifically, NEVER say "Result of calendar.create_events: {...}" - instead, you must make the actual function call using:
+    <call:{"platform":"calendar","function":"create_events","parameters":[{"name":"events","value":[...]}]}>
+12. If a task has not been explicitly completed in the context, you MUST call the necessary functions to complete it. On each prompt, if you don't see evidence that a requested operation was performed, assume it still needs to be done. Continue making function calls until the task is complete.
+13. Always check if the requested operation appears in the previous function calls before claiming it's done. If you don't see evidence that a specific function was called and returned results, you MUST make that function call.
+14. With each function call, include a brief plan of all steps needed for the task. Format as follows:
+    Plan: 
+    - Step 1: [Description] ✓
+    - Step 2: [Description] (current)
+    - Step 3: [Description]
+    
+    Mark completed steps with a checkmark (✓) and indicate the current step with "(current)".
+    after that, you must make the function call to complete the next task.
 """
 prompt += connectionsDoc
 prompt += "the current date, time, and timezone is: " + str(

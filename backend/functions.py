@@ -98,18 +98,25 @@ class functions:
             """Write values/formulas to specific cells
 
             Args:
-                cells: JSON string of cell updates in format:
+                cells: Cell updates in format:
                     {
                         "A1": {"value": "Test"},
                         "B1": {"formula": "=SUM(C1:D1)"}
                     }
+                    Can be provided as either a JSON string or a direct object.
             """
             try:
+                # Handle both direct JSON objects and JSON strings
+                cells_data = cells
+                if isinstance(cells, str):
+                    try:
+                        cells_data = json.loads(cells)
+                    except json.JSONDecodeError as e:
+                        return {"error": f"Invalid cells format: {str(e)}"}
+
                 payload = {
                     "action": "writeCells",
-                    "data": {
-                        "cells": json.loads(cells) if isinstance(cells, str) else cells
-                    },
+                    "data": {"cells": cells_data},
                 }
                 response = requests.post(functions.gsheets.ENDPOINT, json=payload)
                 return response.json()
