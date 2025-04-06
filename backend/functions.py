@@ -3,3 +3,7 @@ class functions:
         @staticmethod
         def led(duration, color="FF0000"):
             print("LED of color: " + color + " for the duration: " + duration)
+        
+        @staticmethod
+        def check(id):
+            return True

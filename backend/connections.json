@@ -1,21 +1,52 @@
 {
+    "io": {
+        "description": "state handler for managing the conversation",
+        "functions": {
+            "continue": {
+                "description": "Continues the response through reprompting | For when you need to do a certain action based on the output of a call",
+                "parameters": [],
+                "output": false
+            },
+            "end": {
+                "description": "Terminates response | For when the user's request is satisfied",
+                "parameters": [],
+                "output": false
+            }
+        }
+    },
     "test_platform": {
-        "led": {
-            "description": "call a request to this when prompted by the user, it shines a light on a website",
-            "parameters": [
-                {
-                    "name": "duration",
-                    "type": "integer 0-100 inclusive REQUIRED",
-                    "example": "3",
-                    "description": "Length of time in seconds for which the website led indicator shines"
-                },
-                {
-                    "name": "color",
-                    "type": "hex OPTIONAL",
-                    "example": "FFFFFF",
-                    "description": "RGB color code of the led indicator"
-                }
-            ]
+        "description": "misc. functions",
+        "functions": {
+            "led": {
+                "description": "set led",
+                "parameters": [
+                    {
+                        "name": "duration",
+                        "type": "integer 0-100 inclusive REQUIRED",
+                        "example": "3",
+                        "description": "Length of time in seconds for which the website led indicator shines"
+                    },
+                    {
+                        "name": "color",
+                        "type": "hex OPTIONAL",
+                        "example": "FFFFFF",
+                        "description": "RGB color code of the led indicator"
+                    }
+                ],
+                "output": false
+            },
+            "check": {
+                "description": "checks the status of a robot",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "type": "integer 0-100 inclusive REQUIRED",
+                        "example": "3",
+                        "description": "ID of the robot whose status is prompted"
+                    }
+                ],
+                "output": true
+            }
         }
     }
 }
